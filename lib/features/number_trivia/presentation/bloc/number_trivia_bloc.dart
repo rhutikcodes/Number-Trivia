@@ -1,9 +1,10 @@
 import 'dart:async';
 
 import 'package:bloc/bloc.dart';
+import 'package:dartz/dartz.dart';
 import 'package:equatable/equatable.dart';
 import 'package:meta/meta.dart';
-import 'package:number_trivia/core/usecase/usecase.dart';
+import 'package:number_trivia/core/error/failures.dart';
 import 'package:number_trivia/core/utils/input_converter.dart';
 import 'package:number_trivia/features/number_trivia/domain/entities/number_trivia.dart';
 import 'package:number_trivia/features/number_trivia/domain/usecases/get_concrete_number_trivia.dart';
@@ -40,7 +41,6 @@ class NumberTriviaBloc extends Bloc<NumberTriviaEvent, NumberTriviaState> {
     if (event is GetTriviaForConcreteNumber) {
       final inputEither =
           inputConverter.stringToUnsignedInteger(event.numberString);
-
       yield* inputEither.fold(
         (failure) async* {
           yield Error(message: INVALID_INPUT_FAILURE_MESSAGE);
@@ -49,13 +49,32 @@ class NumberTriviaBloc extends Bloc<NumberTriviaEvent, NumberTriviaState> {
           yield Loading();
           final failureOrTrivia =
               await getConcreteNumberTrivia(Params(number: integer));
-
-          yield failureOrTrivia.fold(
-            (failure) => Error(message: SERVER_FAILURE_MESSAGE),
-            (trivia) => Loaded(trivia: trivia),
-          );
+          yield* _eitherErrorOrLoadedState(failureOrTrivia);
         },
       );
+    } else if (event is GetTriviaForRandomNumber) {
+      yield Loading();
+      final failureOrTrivia = await getRandomNumberTrivia();
+      yield* _eitherErrorOrLoadedState(failureOrTrivia);
+    }
+  }
+
+  Stream<NumberTriviaState> _eitherErrorOrLoadedState(
+      Either<Failure, NumberTrivia> either) async* {
+    yield either.fold(
+        (failure) => Error(message: _mapFailureToMessage(failure)),
+        (trivia) => Loaded(trivia: trivia));
+  }
+
+  String _mapFailureToMessage(Failure failure) {
+    // Instead of a regular 'if (failure is ServerFailure)...'
+    switch (failure.runtimeType) {
+      case ServerFailure:
+        return SERVER_FAILURE_MESSAGE;
+      case CacheFailure:
+        return CACHE_FAILURE_MESSAGE;
+      default:
+        return 'Unexpected Error';
     }
   }
 }
